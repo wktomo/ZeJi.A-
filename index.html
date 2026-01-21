@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>御制万年历 - 典藏版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lunar-javascript/lunar.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --china-red: #8B0000;
+            --gold: #D4AF37;
+            --silk-white: #F9F4E8;
+            --dark-bg: #1a1a1a;
+        }
+
+        html {
+            /* 强制始终显示垂直滚动轨道，防止因内容长短变化导致页面左右跳动 */
+            overflow-y: scroll; 
+            /* 彻底禁止 iOS/浏览器 的“橡皮筋”回弹效果 */
+            overscroll-behavior: none;
+            height: 100%;
+        }
+
+        body {
+            font-family: 'Noto Serif SC', serif;
+            background-color: var(--dark-bg);
+            color: #333;
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent;
+            /* 继承禁止回弹，并确保高度撑满 */
+            min-height: 100%;
+            overscroll-behavior-y: none; 
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* 宣纸质感 */
+        .paper-texture {
+            background-color: var(--silk-white);
+            background-image: url("data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='5' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' fill='%23000' opacity='0.03' filter='url(%23n)'/%3E%3C/svg%3E");
+        }
+
+        /* 锦绣边框 - 优化纹理 */
+        .brocade-border {
+            border: 8px solid #8B0000;
+            border-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%239B1C1C'%3E%3Cpath d='M30 0L0 30h30zM60 30L30 60V30z'/%3E%3C/g%3E%3Cpath fill='%23D4AF37' opacity='0.3' d='M30 0v60h30zM0 30v30h30z'/%3E%3C/g%3E%3C/svg%3E") 30;
+            box-shadow: 0 20px 40px -10px rgba(0,0,0,0.5);
+        }
+
+        .vertical-text { writing-mode: vertical-rl; }
+
+        /* 滑动动画 */
+        .slide-up { animation: slideUp 0.6s cubic-bezier(0.23, 1, 0.32, 1); }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* 弹窗样式 */
+        #modal { backdrop-filter: blur(5px); }
+
+        .active-hour {
+            background-color: var(--china-red) !important;
+            color: white !important;
+            box-shadow: 0 4px 6px -1px rgba(139, 0, 0, 0.3);
+        }
+        /* 隐藏浏览器原生日期输入框的小图标，确保我们的布局整洁 */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+        /* 日期选择器隐形覆盖层 */
+        .date-picker-overlay {
+            opacity: 0;
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            cursor: pointer;
+        }
+        .slide-in-right { animation: slideInRight 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+        .slide-in-left { animation: slideInLeft 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+        @keyframes slideInRight {
+            from { opacity: 0; transform: translateX(30px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes slideInLeft {
+            from { opacity: 0; transform: translateX(-30px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center min-h-screen pb-32">
+
+    <header class="w-full max-w-md pt-8 pb-4 flex justify-between items-center px-6 z-10 text-stone-400 relative">
+            <label id="date-btn-wrapper" class="relative flex items-center gap-3 bg-[#2a0808] border border-[#9e8c6b] px-4 py-1.5 rounded-sm cursor-pointer shadow-lg ring-2 ring-[#2a0808] ring-offset-1 ring-offset-[#9e8c6b]/30 active:scale-95 active:shadow-none transition-all select-none group">
+                
+                <div class="w-1.5 h-1.5 bg-[#8B0000] rounded-full shadow-[0_0_2px_#D4AF37]"></div>
+
+                <span id="header-year-text" class="text-xs font-serif font-bold text-[#cfb786] tracking-[0.2em] group-hover:text-[#F9F4E8] transition-colors pt-0.5">
+                    载入中...
+                </span>
+                
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-[#5c4033] group-hover:text-[#cfb786] transition-colors" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 16L6 10H18L12 16Z" />
+                </svg>
+
+                <input type="date" id="hidden-date-picker" 
+                    class="absolute inset-0 w-full h-full opacity-0 z-20 cursor-pointer" 
+                    onclick="try{this.showPicker()}catch(e){}"
+                    onchange="pickDate(this.value)">
+            </label>
+
+            <button id="btn-poster" onclick="generatePoster()" class="bg-[#8B0000] border border-[#bfa268]/50 text-[#F9F4E8] px-3 py-1.5 rounded-sm text-[10px] font-serif font-bold flex items-center gap-1 shadow-md hover:bg-[#a31b1b] active:scale-95 transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 opacity-80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                <span class="tracking-widest pt-0.5">收藏图片</span>
+            </button>
+    </header>
+
+    <main id="poster-area" class="w-full max-w-[94vw] md:max-w-md paper-texture brocade-border rounded-sm relative slide-up overflow-hidden mb-4 min-h-[620px]">
+        
+        <div class="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-3 bg-[#720e0e] rounded-b-lg shadow-inner border-b border-red-950/30"></div>
+
+        <div class="p-5 md:p-7">
+            <div class="flex justify-between items-start mb-6 mt-2">
+                <div class="vertical-text text-red-900 font-black text-xl border-l-2 border-red-900/30 pl-3 py-1">
+                    <span id="lunar-month">正月</span>
+                    <span id="lunar-day" class="mt-3 text-3xl">初三</span>
+                </div>
+                <div class="text-right flex flex-col items-end">
+                    <div id="jieqi-tag" class="inline-block bg-[#9B1C1C] text-amber-50 text-[10px] font-bold px-2 py-0.5 mb-2 rounded-sm hidden shadow-sm"></div>
+                    <div id="solar-ym" class="text-sm font-black text-stone-600 tracking-wider">2026.01</div>
+                </div>
+            </div>
+
+            <div class="flex flex-col items-center justify-center mt-6 mb-6">
+                <h1 id="solar-d" class="text-[10rem] font-black leading-[0.85] text-[#5a0909] tracking-tighter drop-shadow-lg z-0" style="-webkit-text-stroke: 2px #8B0000;">
+                    21
+                </h1>
+                
+                <p id="solar-week" class="text-xl font-black tracking-[0.6em] text-stone-500 mt-2 z-10 pt-1">
+                    星期三
+                </p>
+            </div>
+
+            <div class="bg-[#2a2a2a] text-amber-100 p-3 rounded-sm flex justify-around text-xs font-bold tracking-widest mb-7 shadow-inner border-t border-stone-700">
+                <span id="gz-year">丙午年</span>
+                <span id="gz-month">己丑月</span>
+                <span id="gz-day">甲申日</span>
+            </div>
+
+        <div class="grid grid-cols-2 gap-4 mb-8">
+                
+                <div class="border-2 border-[#1a4d1a]/30 p-3 rounded-sm bg-[#f0f7f0] h-32 flex flex-col">
+                    <div class="text-[#1a4d1a] font-black mb-2 flex items-end gap-1 border-b border-[#1a4d1a]/20 pb-2 shrink-0">
+                        <span class="text-xl leading-none">宜</span><span class="text-[9px] opacity-60 font-bold">YI</span>
+                    </div>
+                    <div id="yi-list" class="flex flex-wrap gap-x-3 gap-y-2 text-xs text-green-900 font-bold leading-relaxed cursor-help content-start overflow-y-auto no-scrollbar"></div>
+                </div>
+
+                <div class="border-2 border-[#661010]/30 p-3 rounded-sm bg-[#f8f0f0] h-32 flex flex-col">
+                    <div class="text-[#8B0000] font-black mb-2 flex items-end gap-1 border-b border-[#661010]/20 pb-2 shrink-0">
+                        <span class="text-xl leading-none">忌</span><span class="text-[9px] opacity-60 font-bold">JI</span>
+                    </div>
+                    <div id="ji-list" class="flex flex-wrap gap-x-3 gap-y-2 text-xs text-red-950 font-bold leading-relaxed cursor-help content-start overflow-y-auto no-scrollbar"></div>
+                </div>
+            </div>
+
+            <div class="mb-5">
+                <div class="flex justify-between items-end mb-2 px-1">
+                    <span class="text-[10px] font-black text-stone-400 uppercase tracking-wider">十二时辰吉凶盘</span>
+                    <span id="current-shichen" class="text-[10px] text-red-800 font-bold"></span>
+                </div>
+                <div id="shichen-row" class="flex gap-1.5 overflow-x-auto no-scrollbar pb-3 px-1 snap-x"></div>
+            </div>
+
+            <div class="border-t-2 border-stone-200/60 pt-4 grid grid-cols-2 gap-y-3 text-[10px] text-stone-500 font-bold tracking-wide">
+                <div><span class="opacity-60 mr-2">冲煞</span><span id="val-chong" class="text-stone-800"></span></div>
+                <div><span class="opacity-60 mr-2">纳音</span><span id="val-nayin" class="text-stone-800"></span></div>
+                <div class="col-span-2"><span class="opacity-60 mr-2">彭祖</span><span id="val-pengzu" class="text-stone-800 italic"></span></div>
+            </div>
+        </div>
+
+        <div id="poster-watermark" class="hidden absolute bottom-2 right-4 text-right">
+            <p class="text-[8px] text-stone-400/60 uppercase tracking-widest font-bold">御制万年历 · 典藏版出品</p>
+        </div>
+    </main>
+
+    <nav class="fixed bottom-0 left-0 w-full z-20 pointer-events-none flex justify-center items-end pb-8 pt-20 bg-gradient-to-t from-[#1a1a1a] via-[#1a1a1a]/95 to-transparent">
+        
+        <div class="pointer-events-auto flex items-center gap-1 p-1 bg-[#2b0a0a]/90 border border-[#5c1212] rounded-full shadow-[0_10px_40px_-10px_rgba(0,0,0,1)] ring-1 ring-[#D4AF37]/20 backdrop-blur-xl transform translate-y-2">
+            
+            <button onclick="changeDay(-1)" class="group w-12 h-10 rounded-l-full flex items-center justify-center hover:bg-[#8B0000]/30 active:scale-90 transition-all">
+                <svg class="w-5 h-5 text-[#8c7a6b] group-hover:text-[#D4AF37] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path d="M15 19l-7-7 7-7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+
+            <div class="w-px h-4 bg-[#D4AF37]/10"></div>
+
+            <button onclick="resetToday()" class="px-5 h-10 flex flex-col items-center justify-center group active:scale-95 transition-all cursor-pointer">
+                <span class="text-[#F9F4E8] font-serif font-bold tracking-[0.3em] text-[13px] drop-shadow-md group-hover:text-white">回到今日</span>
+            </button>
+
+            <div class="w-px h-4 bg-[#D4AF37]/10"></div>
+
+            <button onclick="changeDay(1)" class="group w-12 h-10 rounded-r-full flex items-center justify-center hover:bg-[#8B0000]/30 active:scale-90 transition-all">
+                <svg class="w-5 h-5 text-[#8c7a6b] group-hover:text-[#D4AF37] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path d="M9 5l7 7-7 7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </button>
+        </div>
+    </nav>
+
+    <div id="modal" class="fixed inset-0 bg-black/70 hidden z-50 flex items-center justify-center p-6 transition-opacity" onclick="closeModal()">
+        <div class="bg-[#F9F4E8] p-6 rounded-sm max-w-xs w-full shadow-2xl border-t-4 border-red-900 relative" onclick="event.stopPropagation()">
+            <div class="absolute -top-3 -left-3 w-8 h-8 bg-red-900 text-amber-100 flex items-center justify-center font-bold text-lg shadow-md">解</div>
+            <h3 id="modal-title" class="text-xl font-black text-red-900 mb-3 mt-2"></h3>
+            <p id="modal-desc" class="text-stone-700 text-sm leading-loose font-medium text-justify tracking-wide"></p>
+            <button onclick="closeModal()" class="mt-6 w-full py-2.5 bg-red-900/10 text-red-900 text-xs font-bold rounded hover:bg-red-900/20 transition-colors">关闭窗口</button>
+        </div>
+    </div>
+
+    <script>
+        const DICTIONARY = {
+            "余事勿取": "今天除了上面写着可以做的好事，其他的重大决定最好先别做。适合安安静静地休息，享受平淡的一天。",
+            "馀事勿取": "和“余事勿取”是一个意思哦！今天是个休息日，除了日常琐事，不要刻意去安排重要的大事。",
+            "平治道涂": "修路。把家门口坑坑洼洼的路填平，或者修整街道，让大家走路不摔跤。",
+            "祭祀": "给祖先或神明送礼物、鞠躬磕头。告诉他们家里最近发生的事，请他们保佑全家平平安安。",
+            "祈福": "向神明许个愿。比如希望能考个好成绩，或者家里的爷爷奶奶身体健康。",
+            "求嗣": "想生宝宝的夫妻向神明祈祷，希望能求来一个健康聪明的小孩子。",
+            "开光": "给刚做好的神像举办“点睛”仪式，让它拥有灵气，而不只是一块木头或石头。",
+            "斋醮": "道士爷爷们设立道场，通过念经做法事来祈求福气或驱除不好的东西。",
+            "解除": "大扫除！不仅是扫地，更是要把这一年的霉运、晦气统统扫地出门，迎接好运。",
+            "沐浴": "洗个痛快的澡。不仅是洗身体，也是为了洗去一身的疲惫，让自己焕然一新。",
+            "酬神": "因为之前的愿望实现了（比如考试通过了），特地准备好吃的去感谢神明。",
+            "普渡": "在特定的日子（如中元节），准备食物祭奠那些没有家人的孤魂野鬼，做善事。",
+            "纳采": "订婚第一步！男生带着礼物去女生家提亲，说“我想娶你”，双方家长正式见面。",
+            "问名": "古时候要交换生辰八字（生日），看看两个人的性格合不合，会不会吵架。",
+            "纳吉": "提亲顺利，把好消息告诉祖先，准备开始办喜事啦。",
+            "纳征": "这就是现在的“送彩礼”。男方把准备好的聘礼送到女方家，表示诚意。",
+            "纳???": "（同纳征）送聘礼的意思。",
+            "嫁娶": "结婚的大喜日子！穿红衣、办酒席，新郎把新娘接回家，正式成为一家人。",
+            "归宁": "新娘子结婚后，第一次带新郎回娘家看望爸爸妈妈。",
+            "安床": "把睡觉的床摆到一个风水最好的位置。希望能睡得香，不做噩梦，身体棒棒的。",
+            "合帐": "制作挂在床上的蚊帐或帘子，寓意夫妻感情好，以后生的小宝宝也健康。",
+            "冠笄": "这是古代的“成人礼”。男孩子戴帽子，女孩子插发簪，代表长大了，要懂事了。",
+            "进人口": "家里来了新成员！通常指收养了孩子，或者请了新的帮工、保姆。",
+            "认养": "认干爹干妈，或者收养义子义女，让亲情关系更紧密。",
+            "动土": "盖房子前挖的第一铲土。告诉土地公公：“我们要在这里建新家啦，请多多关照。”",
+            "起基": "打地基。像大树扎根一样，把房子的基础打得牢牢的，房子才不会倒。",
+            "竖柱": "立起房子的大柱子。这是房子的“骨架”，非常关键。",
+            "上梁": "把屋顶最高的那根横梁装上去。这是盖房子最隆重的时刻，通常要放鞭炮庆祝。",
+            "盖屋": "给屋顶铺瓦片。给房子戴上帽子，这样下雨天就不会漏水啦。",
+            "修造": "装修或修房子。比如刷墙、换窗户、修补漏水的地方。",
+            "破屋": "拆除旧房子。如果房子太老太破不能住了，就要把它拆掉，准备盖新的。",
+            "坏垣": "拆墙。比如推倒快要塌掉的围墙，或者为了扩建把墙拆开。",
+            "作灶": "砌炉灶或安装燃气灶。灶神爷爷住在这里，灶做好了，做出来的饭菜才香。",
+            "安门": "安装家里的大门。大门是家里的“嘴巴”，装好了才能吸纳好运气。",
+            "拆卸": "把旧的东西或建筑物拆开。比如拆掉旧机器、旧架子，准备换新的。",
+            "修仓库": "修理存放粮食或宝贝的仓库，保证东西不会坏掉。",
+            "开井": "挖水井。为了让大家能喝到甘甜的地下水。",
+            "开池": "挖池塘。可以用来养鱼，或者给庄稼浇水。",
+            "谢土": "房子盖好后，感谢土地神借给我们这块地，让我们能安居乐业。",
+            "开市": "商店开张，或者过完年第一天做生意。寓意生意兴隆，财源滚滚。",
+            "立券": "签合同、签协议。把商量好的大事用白纸黑字写下来。",
+            "交易": "买卖东西、做生意。比如买车、买房，或者完成一笔大订单。",
+            "纳财": "收钱！比如收回欠款、存钱进银行，或者买到了很值钱的宝贝。",
+            "挂匾": "把写着店名或荣誉的大牌子挂起来，显得很有面子。",
+            "入宅": "搬进新家！这天要高高兴兴地正式住进去，把新家变得暖暖和和的。",
+            "移徙": "搬家或搬东西。从旧房子搬到新房子，或者把东西换个地方放。",
+            "出行": "出远门去旅行或出差。选个好日子，路上安全，事情也能办得顺顺利利。",
+            "赴任": "去新单位报到上班，或者升官了去新的地方当官。",
+            "理发": "剪头发。也指给刚出生的小宝宝剃胎毛，希望他从头开始，聪明伶俐。",
+            "整手足甲": "剪指甲。古人对剪指甲很讲究，选个好日子剪，能预防生病。",
+            "习艺": "学习新本领。比如开始学画画、学武术、学乐器，会学得比较快哦。",
+            "求医": "如果不舒服，这天很适合去找名医看病，容易遇到好医生。",
+            "治病": "开始吃药、打针或者做手术，病痛会好得更快。",
+            "针灸": "从中医那里接受针灸治疗，疏通身体的经络。",
+            "疗病": "治疗疾病，特别是慢性病的调养。",
+            "破土": "特指在阴宅（墓地）挖土。这是为了修整祖先的墓地，要非常恭敬。",
+            "安葬": "举行葬礼，把逝去的亲人入土为安。让他们在另一个世界也能安息。",
+            "修坟": "修缮长辈的墓地，除草、培土，表示后代没有忘记他们。",
+            "立碑": "在墓前立一块石碑，写上长辈的名字，让后人永远记得。",
+            "启钻": "捡骨。这是一种特殊的迁葬习俗，把先人的骨殖捡出来重新安葬。",
+            "除服": "守孝期满，脱掉丧服。表示丧事正式结束，生活回归正常。",
+            "成服": "穿上丧服。表示丧礼正式开始，要开始守孝了。",
+            "入殓": "把逝者轻轻地放进棺材里。这是和亲人遗体告别的时刻。",
+            "移柩": "移动灵柩（棺材），准备去下葬。",
+            "合寿木": "给老人家提前准备棺材（以前叫寿材）。寓意祈求长寿。",
+            "栽种": "种树、种花、插秧。植物会喝饱水，长得壮壮的，将来结出很多果实。",
+            "纳畜": "买小动物回家（像牛羊猪狗）。它们会很听话，不爱生病，长得快。",
+            "捕捉": "消灭害虫（如抓老鼠、蝗虫），或者帮家里除害。",
+            "畋猎": "去野外打猎或捕鱼。古人是为了获取食物，现在多指去户外活动。",
+            "结网": "编织渔网或捕兽网。准备好工具，才能抓到更多的鱼。",
+            "牧养": "放牧牛羊。带小动物去吃草，让它们长得胖胖的。",
+            "词讼": "打官司。通常在“忌”里出现，意思是今天容易吵架输掉，最好别去法庭。",
+            "诉讼": "同词讼，指法律上的争端。"
+        };
+        let currentDay = new Date();
+        let touchStartX = 0;
+        let touchStartY = 0;
+        // --- 核心渲染逻辑 ---
+        function render(date) {
+            const solar = Solar.fromDate(date);
+            const lunar = Lunar.fromSolar(solar);
+
+            // 更新顶部日期选择器提示文字
+            document.getElementById('header-year-text').innerText = `公元${solar.getYear()} · ${lunar.getYearInGanZhi()}年`;
+
+            // 基础日期信息更新
+            document.getElementById('solar-ym').innerText = `${solar.getYear()}.${String(solar.getMonth()).padStart(2, '0')}`;
+            document.getElementById('solar-d').innerText = solar.getDay();
+            document.getElementById('solar-week').innerText = '星期' + solar.getWeekInChinese();
+            document.getElementById('lunar-month').innerText = lunar.getMonthInChinese() + '月';
+            document.getElementById('lunar-day').innerText = lunar.getDayInChinese();
+            
+            // 干支更新
+            document.getElementById('gz-year').innerText = lunar.getYearInGanZhi() + '年';
+            document.getElementById('gz-month').innerText = lunar.getMonthInGanZhi() + '月';
+            document.getElementById('gz-day').innerText = lunar.getDayInGanZhi() + '日';
+
+            // 节气标签处理
+            const jq = lunar.getJieQi();
+            const jqBox = document.getElementById('jieqi-tag');
+            if(jq && jq !== "") { jqBox.innerText = jq; jqBox.classList.remove('hidden'); }
+            else { jqBox.classList.add('hidden'); }
+
+            // 宜忌列表渲染 (带下划线交互提示)
+            const renderYiJi = (list, targetId) => {
+                const container = document.getElementById(targetId);
+                container.innerHTML = '';
+                list.slice(0, 12).forEach(item => {
+                    const span = document.createElement('span');
+                    span.className = 'border-b-2 border-dotted border-current cursor-help pb-0.5 hover:opacity-70 transition-opacity';
+                    span.innerText = item;
+                    span.onclick = () => showDetail(item);
+                    container.appendChild(span);
+                });
+            };
+            renderYiJi(lunar.getDayYi(), 'yi-list');
+            renderYiJi(lunar.getDayJi(), 'ji-list');
+
+            // 时辰高亮逻辑 (实时)
+            const now = new Date();
+            // 判断是否是查看“今天”，只有查看今天时才高亮当前时辰
+            const isViewToday = date.toDateString() === now.toDateString();
+            const currentHourZhi = Lunar.fromDate(now).getTimeZhi();
+            
+            const shichenRow = document.getElementById('shichen-row');
+            shichenRow.innerHTML = '';
+            let hasActive = false;
+            lunar.getTimes().forEach(t => {
+                const zhi = t.getZhi();
+                // 只有在查看今天，且地支匹配时才激活
+                const isCurrent = isViewToday && (zhi === currentHourZhi);
+                const isJi = t.getTianShenType() === '黄道';
+                
+                const div = document.createElement('div');
+                div.className = `flex-shrink-0 w-11 h-16 border border-stone-200/80 flex flex-col items-center justify-center rounded-sm bg-white/40 snap-center ${isCurrent ? 'active-hour' : ''}`;
+                div.innerHTML = `<span class="text-[11px] font-bold">${zhi}</span><span class="text-[9px] opacity-70 mt-1">${isJi ? '吉' : '凶'}</span>`;
+                shichenRow.appendChild(div);
+                if(isCurrent) {
+                    document.getElementById('current-shichen').innerText = `当前：${zhi}时 (${isJi ? '吉' : '凶'})`;
+                    hasActive = true;
+                }
+            });
+            if(!hasActive) document.getElementById('current-shichen').innerText = "";
+
+            // 底部详情更新
+            document.getElementById('val-chong').innerText = `冲${lunar.getDayChongDesc()} 煞${lunar.getDaySha()}`;
+            document.getElementById('val-nayin').innerText = lunar.getDayNaYin();
+            document.getElementById('val-pengzu').innerText = `${lunar.getPengZuGan()} ${lunar.getPengZuZhi()}`;
+        }
+
+        // --- 交互与功能 ---
+
+        // 日期选择器回调
+        function pickDate(val) {
+            if(!val) return;
+            currentDay = new Date(val);
+            render(currentDay);
+            // 重置 input 值，确保下次选择同一日期仍能触发 onchange
+            document.getElementById('hidden-date-picker').value = '';
+        }
+
+        // 显示术语详情弹窗
+        function showDetail(term) {
+            const desc = DICTIONARY[term] || "该术语为传统历法专业表述，建议查阅相关古籍以了解其在特定语境下的精确含义。";
+            document.getElementById('modal-title').innerText = term;
+            document.getElementById('modal-desc').innerText = desc;
+            document.getElementById('modal').classList.remove('hidden');
+        }
+        function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+
+        // 左右滑动切换手势
+        document.addEventListener('touchstart', e => {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        }, { passive: true });
+        document.addEventListener('touchend', e => {
+            const touchEndX = e.changedTouches[0].clientX;
+            const touchEndY = e.changedTouches[0].clientY;
+            
+            const deltaX = touchEndX - touchStartX;
+            const deltaY = touchEndY - touchStartY;
+
+            if (Math.abs(deltaX) > 60 && Math.abs(deltaX) > Math.abs(deltaY)) {
+
+                changeDay(deltaX < 0 ? 1 : -1);
+            }
+        });
+
+        // --- 终极版：真·高清海报生成 (修复纹理丢失 + 手机长按保存) ---
+        async function generatePoster() {
+            const btn = document.getElementById('btn-poster');
+            const originalText = btn.innerHTML;
+            
+            // 1. 按钮状态反馈
+            btn.innerHTML = '<svg class="animate-spin h-3.5 w-3.5 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span class="pt-0.5">正在绘图...</span>';
+            btn.disabled = true;
+
+            try {
+                // 2. 等待字体加载完毕 (防止字体变成黑体)
+                await document.fonts.ready;
+
+                const target = document.getElementById('poster-area');
+                
+                // 3. 克隆节点 (打造独立的摄影棚)
+                const container = document.createElement('div');
+                // 放置在屏幕外，但不要 display:none
+                container.style.position = 'fixed';
+                container.style.top = '-9999px'; 
+                container.style.left = '0';
+                container.style.zIndex = '-999';
+                // 强制宽度，保证不同手机生成的海报一样宽
+                container.style.width = '450px'; 
+                document.body.appendChild(container);
+
+                const clone = target.cloneNode(true);
+                
+                // --- 【关键修复】手动注入宣纸纹理 ---
+                // html2canvas 无法渲染 CSS 中的 SVG filter。
+                // 我们给克隆体强制加上一个 Base64 的噪点背景图，模拟宣纸。
+                clone.style.backgroundImage = "url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAMAAAAp4XiDAAAAUVBMVEWFhYWDg4N8fHxqeHg7OzsAAABvb29wcHBzc3NxcXFycHuYmJiamZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZlQO8ooAAAAG3RSTlMA71Dfr7+fXyC/v7+/z2BfIN/f39+vn6+/31879gT5AAAAhklEQVR42u3SqQ5AQAxF0UlD8/8/6g1Wo+CMxMQ9yY05M4tItH3/WOUDLCsDy7Qgy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Ig3x2/A15N60tHAAAAAElFTkSuQmCC')";
+                clone.style.backgroundRepeat = "repeat";
+                clone.style.backgroundColor = "#F9F4E8"; // 宣纸底色
+                
+                // 移除动画和阴影，保证边缘干净
+                clone.classList.remove('slide-up', 'slide-in-right', 'slide-in-left', 'brocade-border');
+                // 手动加上边框样式，因为 html2canvas 对 border-image 支持也不完美，我们用实色边框代替截图时的边框
+                clone.style.border = "8px solid #8B0000";
+                clone.style.margin = '0';
+                clone.style.borderRadius = '0';
+                clone.style.transform = 'none';
+                
+                // 显示水印
+                const watermark = clone.querySelector('#poster-watermark');
+                if(watermark) {
+                    watermark.classList.remove('hidden');
+                    watermark.style.color = "rgba(0,0,0,0.4)"; // 加深水印颜色防止看不清
+                }
+
+                container.appendChild(clone);
+
+                // 4. 开始截图 (Html2Canvas)
+                const canvas = await html2canvas(clone, {
+                    scale: 4, // 4倍超清采样
+                    useCORS: true,
+                    allowTaint: true,
+                    backgroundColor: '#F9F4E8', // 确保没有透明像素
+                    width: 450,
+                    height: clone.offsetHeight,
+                    windowWidth: 450,
+                    // 忽略某些不必要的 CSS 属性以防报错
+                    ignoreElements: (element) => element.tagName === 'IFRAME' 
+                });
+
+                // 5. 生成图片数据
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+
+                // --- 【手机端优化】不强制下载，而是显示弹窗 ---
+                // 原因是：iPhone/微信浏览器里，js强制下载经常失效或乱码。
+                // 最好的办法是弹出来让用户自己“长按保存”。
+                showImageModal(dataUrl);
+
+                // 清理 DOM
+                document.body.removeChild(container);
+
+            } catch (err) {
+                console.error(err);
+                alert('生成图片时出了点小差错，请重试。');
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // 新增：图片预览弹窗 (专门解决“不是原图”的感觉)
+        function showImageModal(imgUrl) {
+            // 创建一个全屏的弹窗
+            const modal = document.createElement('div');
+            modal.style.position = 'fixed';
+            modal.style.inset = '0';
+            modal.style.backgroundColor = 'rgba(0,0,0,0.85)';
+            modal.style.zIndex = '100';
+            modal.style.display = 'flex';
+            modal.style.flexDirection = 'column';
+            modal.style.alignItems = 'center';
+            modal.style.justifyContent = 'center';
+            modal.style.backdropFilter = 'blur(10px)';
+            modal.style.animation = 'fadeIn 0.3s ease-out';
+
+            // 提示文字
+            const tip = document.createElement('div');
+            tip.innerText = '长按图片保存到相册';
+            tip.className = 'text-white/80 text-sm mb-4 font-bold tracking-widest bg-black/50 px-4 py-2 rounded-full';
+
+            // 图片本体
+            const img = new Image();
+            img.src = imgUrl;
+            img.className = 'max-w-[85vw] max-h-[80vh] shadow-2xl border-4 border-[#2b0a0a] rounded-sm';
+            img.style.objectFit = 'contain';
+
+            // 关闭按钮
+            const closeBtn = document.createElement('button');
+            closeBtn.innerHTML = '&times;';
+            closeBtn.className = 'absolute top-4 right-4 text-white text-4xl opacity-70 hover:opacity-100';
+            closeBtn.onclick = () => document.body.removeChild(modal);
+
+            // 点击背景关闭
+            modal.onclick = (e) => {
+                if(e.target === modal) document.body.removeChild(modal);
+            };
+
+            modal.appendChild(tip);
+            modal.appendChild(img);
+            modal.appendChild(closeBtn);
+            document.body.appendChild(modal);
+        }
+
+        // 补充 CSS 动画
+        const style = document.createElement('style');
+        style.innerHTML = `@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }`;
+        document.head.appendChild(style);
+        function changeDay(n) {
+            // 数据更新
+            currentDay.setDate(currentDay.getDate() + n);
+            render(currentDay);
+
+            // 视觉反馈：给主容器添加动画类
+            const poster = document.getElementById('poster-area');
+            
+            // 先移除所有可能的动画类，强制重绘
+            poster.classList.remove('slide-up', 'slide-in-right', 'slide-in-left');
+            void poster.offsetWidth; // 魔法代码：强制浏览器触发重绘 (Reflow)
+            
+            // 根据翻页方向添加对应的动画 (n>0是下一天，从右边进来；n<0是上一天，从左边进来)
+            if (n > 0) {
+                poster.classList.add('slide-in-right');
+            } else {
+                poster.classList.add('slide-in-left');
+            }
+
+            // 触觉反馈 (如果手机支持)
+            if(window.navigator.vibrate) window.navigator.vibrate(10);
+        }
+
+        function resetToday() { 
+            currentDay = new Date(); 
+            // 回到今天通常用一个更有弹性的动画
+            const poster = document.getElementById('poster-area');
+            poster.classList.remove('slide-up', 'slide-in-right', 'slide-in-left');
+            void poster.offsetWidth;
+            poster.classList.add('slide-up');
+            
+            render(currentDay); 
+        }
+
+        window.onload = () => {
+            render(currentDay);
+            const preloadImg = new Image();
+            preloadImg.src = "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='5' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' fill='%23000' opacity='0.03' filter='url(%23n)'/%3E%3C/svg%3E";
+        };
+    </script>
+</body>
+</html>
