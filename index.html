@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>御制万年历 - 典藏版</title>
+    <title>择吉-电子万年历</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/lunar-javascript/lunar.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -15,7 +15,23 @@
             --silk-white: #F9F4E8;
             --dark-bg: #1a1a1a;
         }
-
+        body.dark-mode {
+            background-color: #000;
+        }
+        .dark-mode #poster-stage {
+            background-color: #1a0505; /* 深红黑 */
+            background-image: none; /* 去掉亮色纹理，换一个暗的 */
+            border-color: #3d0e0e;
+        }
+        .dark-mode #solar-d {
+            color: #D4AF37; /* 金色数字 */
+            text-shadow: 0 0 10px rgba(212, 175, 55, 0.5); /* 发光 */
+            -webkit-text-stroke: 0;
+        }
+        .dark-mode .brocade-border {
+            border-image: none;
+            border: 4px double #5c1212;
+        }
         html {
             /* 强制始终显示垂直滚动轨道，防止因内容长短变化导致页面左右跳动 */
             overflow-y: scroll; 
@@ -23,7 +39,16 @@
             overscroll-behavior: none;
             height: 100%;
         }
-
+        /* 呼吸灯动画：模仿人的呼吸节奏，柔和地忽明忽暗 */
+        @keyframes breathe {
+            0%, 100% { opacity: 1; box-shadow: 0 0 5px rgba(139, 0, 0, 0.4); }
+            50% { opacity: 0.85; box-shadow: 0 0 15px rgba(139, 0, 0, 0.8); }
+        }
+        .active-hour {
+            /* ...保留原有样式... */
+            animation: breathe 3s ease-in-out infinite; /* 3秒一次呼吸 */
+            border: 1px solid #ffaa00 !important; /* 加个金边更显眼 */
+        }
         body {
             font-family: 'Noto Serif SC', serif;
             background-color: var(--dark-bg);
@@ -36,13 +61,60 @@
             user-select: none;
             -webkit-user-select: none;
         }
+        /* 水墨晕染动画 */
+        .ink-ripple {
+            position: absolute;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(43, 10, 10, 0.4) 0%, rgba(43, 10, 10, 0) 70%);
+            transform: scale(0);
+            pointer-events: none; /* 必须穿透，否则会挡住点击 */
+            animation: ink-spread 0.6s ease-out forwards;
+            z-index: 50;
+        }
 
+        @keyframes ink-spread {
+            to {
+                transform: scale(4);
+                opacity: 0;
+            }
+        }
         /* 宣纸质感 */
         .paper-texture {
             background-color: var(--silk-white);
             background-image: url("data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='5' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' fill='%23000' opacity='0.03' filter='url(%23n)'/%3E%3C/svg%3E");
         }
+        #poster-stage {
+            position: relative;
+            /* 这里的背景色要和背景一致，防止滑动间隙透出黑色 */
+            background-color: #F9F4E8; 
+        }
 
+        /* 动画持续时间与曲线 (iOS 风格) */
+        .page-anim {
+            animation-duration: 0.4s;
+            animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+            animation-fill-mode: forwards;
+            position: absolute !important;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+
+        /* 向左翻页 (看明天)：旧页左移，新页从右入 */
+        .move-out-left { animation-name: outLeft; }
+        .move-in-right { animation-name: inRight; z-index: 11; position: relative !important;} 
+
+        /* 向右翻页 (看昨天)：旧页右移，新页从左入 */
+        .move-out-right { animation-name: outRight; z-index: 11; }
+        .move-in-left { animation-name: inLeft; position: relative !important; }
+
+        @keyframes outLeft  { from { transform: translateX(0); opacity: 1; } to { transform: translateX(-100%); opacity: 0.8; } }
+        @keyframes inRight  { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+        @keyframes outRight { from { transform: translateX(0); opacity: 1; } to { transform: translateX(100%); opacity: 0.8; } }
+        @keyframes inLeft   { from { transform: translateX(-100%); } to { transform: translateX(0); } }
         /* 锦绣边框 - 优化纹理 */
         .brocade-border {
             border: 8px solid #8B0000;
@@ -96,10 +168,28 @@
             from { opacity: 0; transform: translateX(-30px); }
             to { opacity: 1; transform: translateX(0); }
         }
+
     </style>
 </head>
 <body class="flex flex-col items-center min-h-screen pb-32">
+<div id="gate-overlay" class="fixed inset-0 z-[100] flex pointer-events-none">
+    <div id="gate-left" class="w-1/2 h-full bg-[#8B0000] border-r-4 border-[#5c1212] relative shadow-2xl transition-transform duration-[1500ms] ease-in-out origin-left flex items-center justify-center">
+        <div class="absolute inset-0 grid grid-cols-3 gap-8 p-8 opacity-20">
+            ${Array(12).fill('<div class="w-4 h-4 rounded-full bg-[#3d0a0a] shadow-inner"></div>').join('')}
+        </div>
+        <div class="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-12 border-4 border-[#D4AF37] rounded-full"></div> </div>
+    
+    <div id="gate-right" class="w-1/2 h-full bg-[#8B0000] border-l-4 border-[#5c1212] relative shadow-2xl transition-transform duration-[1500ms] ease-in-out origin-right flex items-center justify-center">
+        <div class="absolute inset-0 grid grid-cols-3 gap-8 p-8 opacity-20">
+             ${Array(12).fill('<div class="w-4 h-4 rounded-full bg-[#3d0a0a] shadow-inner"></div>').join('')}
+        </div>
+        <div class="absolute left-4 top-1/2 -translate-y-1/2 w-8 h-12 border-4 border-[#D4AF37] rounded-full"></div>
+    </div>
 
+    <div id="gate-fu" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 bg-[#D4AF37] text-[#8B0000] flex items-center justify-center font-black text-4xl rotate-45 border-4 border-[#8B0000] shadow-lg transition-opacity duration-500 z-10 rounded-sm">
+        <span class="-rotate-45">福</span>
+    </div>
+</div>
     <header class="w-full max-w-md pt-8 pb-4 flex justify-between items-center px-6 z-10 text-stone-400 relative">
             <label id="date-btn-wrapper" class="relative flex items-center gap-3 bg-[#2a0808] border border-[#9e8c6b] px-4 py-1.5 rounded-sm cursor-pointer shadow-lg ring-2 ring-[#2a0808] ring-offset-1 ring-offset-[#9e8c6b]/30 active:scale-95 active:shadow-none transition-all select-none group">
                 
@@ -126,8 +216,8 @@
                 <span class="tracking-widest pt-0.5">收藏图片</span>
             </button>
     </header>
-
-    <main id="poster-area" class="w-full max-w-[94vw] md:max-w-md paper-texture brocade-border rounded-sm relative slide-up overflow-hidden mb-4 min-h-[620px]">
+<div id="poster-stage" class="w-full max-w-[94vw] md:max-w-md relative overflow-hidden min-h-[620px] rounded-sm shadow-2xl">
+    <main id="poster-area" class="w-full max-w-[94vw] md:max-w-md paper-texture brocade-border rounded-sm relative overflow-hidden mb-4 min-h-[620px]">
         
         <div class="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-3 bg-[#720e0e] rounded-b-lg shadow-inner border-b border-red-950/30"></div>
 
@@ -137,10 +227,13 @@
                     <span id="lunar-month">正月</span>
                     <span id="lunar-day" class="mt-3 text-3xl">初三</span>
                 </div>
-                <div class="text-right flex flex-col items-end">
-                    <div id="jieqi-tag" class="inline-block bg-[#9B1C1C] text-amber-50 text-[10px] font-bold px-2 py-0.5 mb-2 rounded-sm hidden shadow-sm"></div>
-                    <div id="solar-ym" class="text-sm font-black text-stone-600 tracking-wider">2026.01</div>
-                </div>
+                    <div class="text-right flex flex-col items-end">
+                        <div id="jieqi-tag" class="..."></div>
+                        
+                        <div id="festival-tag" class="mt-1 text-xs font-bold text-[#8B0000] hidden"></div>
+                        
+                        <div id="solar-ym" class="...">2026.01</div>
+                    </div>
             </div>
 
             <div class="flex flex-col items-center justify-center mt-6 mb-6">
@@ -174,6 +267,7 @@
                     </div>
                     <div id="ji-list" class="flex flex-wrap gap-x-3 gap-y-2 text-xs text-red-950 font-bold leading-relaxed cursor-help content-start overflow-y-auto no-scrollbar"></div>
                 </div>
+                
             </div>
 
             <div class="mb-5">
@@ -184,18 +278,39 @@
                 <div id="shichen-row" class="flex gap-1.5 overflow-x-auto no-scrollbar pb-3 px-1 snap-x"></div>
             </div>
 
-            <div class="border-t-2 border-stone-200/60 pt-4 grid grid-cols-2 gap-y-3 text-[10px] text-stone-500 font-bold tracking-wide">
-                <div><span class="opacity-60 mr-2">冲煞</span><span id="val-chong" class="text-stone-800"></span></div>
-                <div><span class="opacity-60 mr-2">纳音</span><span id="val-nayin" class="text-stone-800"></span></div>
+            <div class="border-t-2 border-stone-200/60 pt-4 text-[10px] text-stone-500 font-bold tracking-wide">
+                <div class="grid grid-cols-2 gap-y-2 mb-3">
+                    <div><span class="opacity-60 mr-2">冲煞</span><span id="val-chong" class="text-stone-800"></span></div>
+                    <div><span class="opacity-60 mr-2">纳音</span><span id="val-nayin" class="text-stone-800"></span></div>
+                </div>
+                
+                <div class="flex justify-between bg-[#f3efe6] p-2 rounded-sm text-center mb-3 text-[#8B0000]">
+                    <div>
+                        <div class="opacity-50 text-[9px] mb-0.5">喜神</div>
+                        <div id="pos-xi" class="font-black text-sm"></div>
+                    </div>
+                    <div class="w-px bg-stone-300 mx-1"></div>
+                    <div>
+                        <div class="opacity-50 text-[9px] mb-0.5">财神</div>
+                        <div id="pos-cai" class="font-black text-sm"></div>
+                    </div>
+                    <div class="w-px bg-stone-300 mx-1"></div>
+                    <div>
+                        <div class="opacity-50 text-[9px] mb-0.5">福神</div>
+                        <div id="pos-fu" class="font-black text-sm"></div>
+                    </div>
+                </div>
+
                 <div class="col-span-2"><span class="opacity-60 mr-2">彭祖</span><span id="val-pengzu" class="text-stone-800 italic"></span></div>
             </div>
         </div>
 
         <div id="poster-watermark" class="hidden absolute bottom-2 right-4 text-right">
-            <p class="text-[8px] text-stone-400/60 uppercase tracking-widest font-bold">御制万年历 · 典藏版出品</p>
+            <p class="text-[10px] text-[#8B0000] font-black tracking-widest mb-1">御制万年历-初代版本</p>
+            <p class="text-[8px] text-stone-400 uppercase tracking-wider">欢迎关注阿星，阿星出品必属精品</p>
         </div>
     </main>
-
+</div>
     <nav class="fixed bottom-0 left-0 w-full z-20 pointer-events-none flex justify-center items-end pb-8 pt-20 bg-gradient-to-t from-[#1a1a1a] via-[#1a1a1a]/95 to-transparent">
         
         <div class="pointer-events-auto flex items-center gap-1 p-1 bg-[#2b0a0a]/90 border border-[#5c1212] rounded-full shadow-[0_10px_40px_-10px_rgba(0,0,0,1)] ring-1 ring-[#D4AF37]/20 backdrop-blur-xl transform translate-y-2">
@@ -230,8 +345,43 @@
             <button onclick="closeModal()" class="mt-6 w-full py-2.5 bg-red-900/10 text-red-900 text-xs font-bold rounded hover:bg-red-900/20 transition-colors">关闭窗口</button>
         </div>
     </div>
-
+    <div id="qian-modal" class="fixed inset-0 bg-black/80 hidden z-[60] flex flex-col items-center justify-center p-6 transition-opacity duration-500 opacity-0" onclick="closeQian()">
+        <div class="bg-[#F9F4E8] brocade-border p-8 rounded-sm text-center relative max-w-sm w-full transform scale-90 transition-transform duration-300" id="qian-content">
+            <h3 class="text-red-900 font-black text-2xl mb-4 tracking-[0.5em]">上上签</h3>
+            <div class="w-px h-16 bg-red-900/30 mx-auto mb-4"></div>
+            <p id="qian-text" class="text-xl font-serif font-bold text-stone-800 leading-relaxed mb-6">
+                </p>
+            <p class="text-sm text-stone-500">（摇晃手机可重新抽取）</p>
+        </div>
+    </div>
+<canvas id="gold-dust" class="fixed inset-0 pointer-events-none z-[5] opacity-60"></canvas>
     <script>
+       (function() {
+        document.oncontextmenu = () => false;
+        document.onkeydown = (e) => {
+            if(e.keyCode == 123 || (e.ctrlKey && e.shiftKey && (e.keyCode == 73 || e.keyCode == 74)) || (e.ctrlKey && e.keyCode == 85)) {
+                return false;
+            }
+        };
+        setInterval(function() {
+            check();
+        }, 1000);
+        var check = function() {
+            function doCheck(a) {
+                if (("" + a/a)["length"] !== 1 || a % 20 === 0) {
+                    (function() {}
+                    ["constructor"]("debugger")())
+                } else {
+                    (function() {}
+                    ["constructor"]("debugger")())
+                }
+                doCheck(++a)
+            }
+            try {
+                doCheck(0)
+            } catch (err) {}
+        };
+    })();
         const DICTIONARY = {
             "余事勿取": "今天除了上面写着可以做的好事，其他的重大决定最好先别做。适合安安静静地休息，享受平淡的一天。",
             "馀事勿取": "和“余事勿取”是一个意思哦！今天是个休息日，除了日常琐事，不要刻意去安排重要的大事。",
@@ -310,11 +460,13 @@
         let currentDay = new Date();
         let touchStartX = 0;
         let touchStartY = 0;
-        // --- 核心渲染逻辑 ---
         function render(date) {
             const solar = Solar.fromDate(date);
             const lunar = Lunar.fromSolar(solar);
-
+            // 更新方位信息
+            document.getElementById('pos-xi').innerText = lunar.getPositionXiDesc(); // 喜神
+            document.getElementById('pos-cai').innerText = lunar.getPositionCaiDesc(); // 财神
+            document.getElementById('pos-fu').innerText = lunar.getPositionFuDesc(); // 福神
             // 更新顶部日期选择器提示文字
             document.getElementById('header-year-text').innerText = `公元${solar.getYear()} · ${lunar.getYearInGanZhi()}年`;
 
@@ -324,7 +476,45 @@
             document.getElementById('solar-week').innerText = '星期' + solar.getWeekInChinese();
             document.getElementById('lunar-month').innerText = lunar.getMonthInChinese() + '月';
             document.getElementById('lunar-day').innerText = lunar.getDayInChinese();
-            
+            // 获取所有节日 (包括农历节日、阳历节日)
+            let festivals = [];
+            // 农历节日 (如春节、端午)
+            lunar.getFestivals().forEach(f => festivals.push(f));
+            // 阳历节日 (如元旦、劳动节)
+            solar.getFestivals().forEach(f => festivals.push(f));
+            // 也可以加自定义节日
+            if (solar.getMonth() === 5 && solar.getDay() === 20) festivals.push("情人节");
+            // 简单的光影视差效果
+            document.addEventListener('mousemove', (e) => {
+                updateShadow(e.clientX, e.clientY);
+            });
+
+            if (window.DeviceOrientationEvent) {
+                window.addEventListener('deviceorientation', (event) => {
+                    // 将倾斜角度转换为坐标模拟
+                    const x = window.innerWidth / 2 + event.gamma * 5; 
+                    const y = window.innerHeight / 2 + event.beta * 5;
+                    updateShadow(x, y);
+                });
+            }
+            function updateShadow(x, y) {
+                const stage = document.getElementById('poster-stage'); 
+                const cx = window.innerWidth / 2;
+                const cy = window.innerHeight / 2;
+                const dx = (x - cx) / cx;
+                const dy = (y - cy) / cy;
+                stage.style.boxShadow = `${-dx * 20}px ${-dy * 20}px 30px rgba(0,0,0,0.4)`;
+            }
+            const festivalBox = document.getElementById('festival-tag');
+            if (festivals.length > 0) {
+                // 优先显示第一个节日，或者用逗号拼接
+                festivalBox.innerText = festivals[0]; 
+                festivalBox.classList.remove('hidden');
+                // 如果是节日，给个喜庆的特效，比如把文字变大变红
+                festivalBox.className = "mt-1 text-sm font-black text-[#D4AF37] bg-[#8B0000] px-2 py-0.5 rounded-sm shadow-sm animate-pulse";
+            } else {
+                festivalBox.classList.add('hidden');
+            }
             // 干支更新
             document.getElementById('gz-year').innerText = lunar.getYearInGanZhi() + '年';
             document.getElementById('gz-month').innerText = lunar.getMonthInGanZhi() + '月';
@@ -336,7 +526,6 @@
             if(jq && jq !== "") { jqBox.innerText = jq; jqBox.classList.remove('hidden'); }
             else { jqBox.classList.add('hidden'); }
 
-            // 宜忌列表渲染 (带下划线交互提示)
             const renderYiJi = (list, targetId) => {
                 const container = document.getElementById(targetId);
                 container.innerHTML = '';
@@ -351,9 +540,7 @@
             renderYiJi(lunar.getDayYi(), 'yi-list');
             renderYiJi(lunar.getDayJi(), 'ji-list');
 
-            // 时辰高亮逻辑 (实时)
             const now = new Date();
-            // 判断是否是查看“今天”，只有查看今天时才高亮当前时辰
             const isViewToday = date.toDateString() === now.toDateString();
             const currentHourZhi = Lunar.fromDate(now).getTimeZhi();
             
@@ -383,62 +570,123 @@
             document.getElementById('val-pengzu').innerText = `${lunar.getPengZuGan()} ${lunar.getPengZuZhi()}`;
         }
 
-        // --- 交互与功能 ---
-
-        // 日期选择器回调
         function pickDate(val) {
             if(!val) return;
             currentDay = new Date(val);
             render(currentDay);
-            // 重置 input 值，确保下次选择同一日期仍能触发 onchange
+            playPaperSound();
             document.getElementById('hidden-date-picker').value = '';
         }
 
-        // 显示术语详情弹窗
         function showDetail(term) {
             const desc = DICTIONARY[term] || "该术语为传统历法专业表述，建议查阅相关古籍以了解其在特定语境下的精确含义。";
             document.getElementById('modal-title').innerText = term;
             document.getElementById('modal-desc').innerText = desc;
             document.getElementById('modal').classList.remove('hidden');
+            playWoodSound(); // 打开弹窗加声音
         }
-        function closeModal() { document.getElementById('modal').classList.add('hidden'); }
-
-        // 左右滑动切换手势
+        function closeModal() { 
+            document.getElementById('modal').classList.add('hidden'); 
+        }
+        let touchStartTime = 0;
         document.addEventListener('touchstart', e => {
+
+            if (e.target.closest('#shichen-row') || e.target.closest('#yi-list') || e.target.closest('#ji-list')) {
+                touchStartX = null; // 标记为无效滑动
+                return;
+            }
+
             touchStartX = e.touches[0].clientX;
             touchStartY = e.touches[0].clientY;
+            touchStartTime = Date.now(); // 记录时间
         }, { passive: true });
+
         document.addEventListener('touchend', e => {
+            // 如果起始点无效（在滚动区），直接退出
+            if (touchStartX === null) return;
+
             const touchEndX = e.changedTouches[0].clientX;
             const touchEndY = e.changedTouches[0].clientY;
             
             const deltaX = touchEndX - touchStartX;
             const deltaY = touchEndY - touchStartY;
+            const timeDiff = Date.now() - touchStartTime;
 
-            if (Math.abs(deltaX) > 60 && Math.abs(deltaX) > Math.abs(deltaY)) {
-
+            if (Math.abs(deltaX) > 80 && Math.abs(deltaX) > Math.abs(deltaY) * 1.5 && timeDiff < 500) {
                 changeDay(deltaX < 0 ? 1 : -1);
             }
-        });
+            
 
-        // --- 终极版：真·高清海报生成 (修复纹理丢失 + 手机长按保存) ---
+            touchStartX = null;
+        });
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        let noiseBuffer = null;
+
+        function initNoiseBuffer() {
+            if (noiseBuffer) return;
+            const bufferSize = audioCtx.sampleRate * 1.0; // 1秒的噪音足够了
+            noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const data = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = Math.random() * 2 - 1;
+            }
+        }
+
+        function playPaperSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            initNoiseBuffer();
+
+            const noise = audioCtx.createBufferSource();
+            noise.buffer = noiseBuffer;
+
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass'; 
+            filter.Q.value = 1;      
+            const gainNode = audioCtx.createGain();
+            noise.connect(filter);
+            filter.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            const t = audioCtx.currentTime;
+            filter.frequency.setValueAtTime(200, t);
+            filter.frequency.exponentialRampToValueAtTime(1500, t + 0.1); // 快速划过
+            filter.frequency.exponentialRampToValueAtTime(100, t + 0.3);  // 动作结束
+            gainNode.gain.setValueAtTime(0, t);
+            gainNode.gain.linearRampToValueAtTime(0.5, t + 0.05); // 0.05秒达到最大音量
+            gainNode.gain.exponentialRampToValueAtTime(0.01, t + 0.3); // 0.3秒后消失
+
+            noise.playbackRate.value = 0.8 + Math.random() * 0.4; 
+
+            noise.start(t);
+            noise.stop(t + 0.4); // 0.4秒后停止
+        }
+        let lastTouchTime = 0;
+        document.addEventListener('touchend', (e) => {
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTouchTime;
+
+            if (tapLength < 300 && tapLength > 0) {
+                // 排除掉点在按钮上的情况
+                if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') {
+                    resetToday();
+                    // 可以加个特殊震动提示
+                    if(window.navigator.vibrate) window.navigator.vibrate([50, 50, 50]);
+                }
+            }
+            lastTouchTime = currentTime;
+        });
         async function generatePoster() {
             const btn = document.getElementById('btn-poster');
             const originalText = btn.innerHTML;
-            
-            // 1. 按钮状态反馈
             btn.innerHTML = '<svg class="animate-spin h-3.5 w-3.5 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg><span class="pt-0.5">正在绘图...</span>';
             btn.disabled = true;
 
             try {
-                // 2. 等待字体加载完毕 (防止字体变成黑体)
                 await document.fonts.ready;
 
                 const target = document.getElementById('poster-area');
                 
-                // 3. 克隆节点 (打造独立的摄影棚)
                 const container = document.createElement('div');
-                // 放置在屏幕外，但不要 display:none
                 container.style.position = 'fixed';
                 container.style.top = '-9999px'; 
                 container.style.left = '0';
@@ -449,9 +697,6 @@
 
                 const clone = target.cloneNode(true);
                 
-                // --- 【关键修复】手动注入宣纸纹理 ---
-                // html2canvas 无法渲染 CSS 中的 SVG filter。
-                // 我们给克隆体强制加上一个 Base64 的噪点背景图，模拟宣纸。
                 clone.style.backgroundImage = "url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyCAMAAAAp4XiDAAAAUVBMVEWFhYWDg4N8fHxqeHg7OzsAAABvb29wcHBzc3NxcXFycHuYmJiamZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZlQO8ooAAAAG3RSTlMA71Dfr7+fXyC/v7+/z2BfIN/f39+vn6+/31879gT5AAAAhklEQVR42u3SqQ5AQAxF0UlD8/8/6g1Wo+CMxMQ9yY05M4tItH3/WOUDLCsDy7Qgy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Igy7Ig3x2/A15N60tHAAAAAElFTkSuQmCC')";
                 clone.style.backgroundRepeat = "repeat";
                 clone.style.backgroundColor = "#F9F4E8"; // 宣纸底色
@@ -489,9 +734,6 @@
                 // 5. 生成图片数据
                 const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
 
-                // --- 【手机端优化】不强制下载，而是显示弹窗 ---
-                // 原因是：iPhone/微信浏览器里，js强制下载经常失效或乱码。
-                // 最好的办法是弹出来让用户自己“长按保存”。
                 showImageModal(dataUrl);
 
                 // 清理 DOM
@@ -505,10 +747,15 @@
                 btn.disabled = false;
             }
         }
+        setInterval(() => {
+            const now = new Date();
 
-        // 新增：图片预览弹窗 (专门解决“不是原图”的感觉)
+            if (currentDay.toDateString() === now.toDateString()) {
+                render(now); 
+            }
+        }, 60000); // 60000毫秒 = 1分钟
+
         function showImageModal(imgUrl) {
-            // 创建一个全屏的弹窗
             const modal = document.createElement('div');
             modal.style.position = 'fixed';
             modal.style.inset = '0';
@@ -548,50 +795,238 @@
             modal.appendChild(closeBtn);
             document.body.appendChild(modal);
         }
-
-        // 补充 CSS 动画
+        // const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const style = document.createElement('style');
         style.innerHTML = `@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }`;
         document.head.appendChild(style);
+        let isAnimating = false;
+
         function changeDay(n) {
-            // 数据更新
+            if (isAnimating) return; 
+            isAnimating = true;
+
+            playPaperSound();
+
+            const stage = document.getElementById('poster-stage');
+            const content = document.getElementById('poster-area');            
+            const clone = content.cloneNode(true);            
+            clone.removeAttribute('id');
+            clone.classList.add('page-anim'); 
             currentDay.setDate(currentDay.getDate() + n);
             render(currentDay);
+            let cloneAnimClass, contentAnimClass;
 
-            // 视觉反馈：给主容器添加动画类
-            const poster = document.getElementById('poster-area');
-            
-            // 先移除所有可能的动画类，强制重绘
-            poster.classList.remove('slide-up', 'slide-in-right', 'slide-in-left');
-            void poster.offsetWidth; // 魔法代码：强制浏览器触发重绘 (Reflow)
-            
-            // 根据翻页方向添加对应的动画 (n>0是下一天，从右边进来；n<0是上一天，从左边进来)
             if (n > 0) {
-                poster.classList.add('slide-in-right');
+                cloneAnimClass = 'move-out-left';
+                contentAnimClass = 'move-in-right';
             } else {
-                poster.classList.add('slide-in-left');
+                cloneAnimClass = 'move-out-right';
+                contentAnimClass = 'move-in-left';
             }
+            stage.appendChild(clone);
 
-            // 触觉反馈 (如果手机支持)
+            requestAnimationFrame(() => {
+                clone.classList.add(cloneAnimClass);
+                content.classList.add('page-anim', contentAnimClass);
+            });
+
+            setTimeout(() => {
+                if(clone.parentNode) clone.parentNode.removeChild(clone);
+
+                content.classList.remove('page-anim', 'move-in-right', 'move-in-left');
+                
+                isAnimating = false; // 解锁
+            }, 400); 
+
             if(window.navigator.vibrate) window.navigator.vibrate(10);
         }
 
-        function resetToday() { 
-            currentDay = new Date(); 
-            // 回到今天通常用一个更有弹性的动画
-            const poster = document.getElementById('poster-area');
-            poster.classList.remove('slide-up', 'slide-in-right', 'slide-in-left');
-            void poster.offsetWidth;
-            poster.classList.add('slide-up');
-            
-            render(currentDay); 
-        }
+        function resetToday() {
+            if (isAnimating) return;
+            playPaperSound(); // <--- 这里改成了翻书声            
+            const content = document.getElementById('poster-area');
 
+            content.style.opacity = '0';
+            content.style.transform = 'scale(0.98)';
+            content.style.transition = 'all 0.4s ease';
+            
+            currentDay = new Date();
+            render(currentDay);
+            
+            requestAnimationFrame(() => {
+                content.style.opacity = '1';
+                content.style.transform = 'scale(1)';
+            });
+
+            setTimeout(() => {
+                content.style.transition = '';
+                content.style.transform = '';
+                content.style.opacity = '';
+            }, 400);
+        }
+        const hour = new Date().getHours();
+        if (hour >= 19 || hour <= 6) {
+            document.body.classList.add('dark-mode');
+        }
         window.onload = () => {
             render(currentDay);
             const preloadImg = new Image();
+            setTimeout(() => {
+            document.getElementById('gate-left').style.transform = 'perspective(1000px) rotateY(-80deg)'; // 3D开门效果
+            document.getElementById('gate-right').style.transform = 'perspective(1000px) rotateY(80deg)';
+            document.getElementById('gate-fu').style.opacity = '0'; // 福字淡出            
+            // playPaperSound(); 
+            setTimeout(() => {
+                document.getElementById('gate-overlay').remove();
+            }, 1600);
+        }, 500);
             preloadImg.src = "data:image/svg+xml,%3Csvg width='200' height='200' viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='5' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' fill='%23000' opacity='0.03' filter='url(%23n)'/%3E%3C/svg%3E";
         };
+
+        let lastX = 0, lastY = 0, lastZ = 0;
+        let lastTime = 0;
+        const SHAKE_THRESHOLD = 5000; 
+        let lastShakeTime = 0;
+
+        // 签文库
+        const QIAN_LIST = [
+            "运去金成铁，时来铁似金。",
+            "有缘千里来相会，无缘对面不相逢。",
+            "万事不由人计较，一生都是命安排。",
+            "宝剑锋从磨砺出，梅花香自苦寒来。",
+            "山重水复疑无路，柳暗花明又一村。",
+            "长风破浪会有时，直挂云帆济沧海。"
+        ];
+
+        if (window.DeviceMotionEvent) {
+            window.addEventListener('devicemotion', deviceMotionHandler, false);
+        }
+
+        function deviceMotionHandler(eventData) {
+            const acceleration = eventData.accelerationIncludingGravity;
+            const curTime = new Date().getTime();
+
+            if ((curTime - lastTime) > 100) {
+                const diffTime = curTime - lastTime;
+                lastTime = curTime;
+                
+                const x = acceleration.x;
+                const y = acceleration.y;
+                const z = acceleration.z;
+                
+                const speed = Math.abs(x + y + z - lastX - lastY - lastZ) / diffTime * 10000;
+
+                if (speed > SHAKE_THRESHOLD) {
+                    // 防抖，2秒内只触发一次
+                    if (curTime - lastShakeTime > 2000) {
+                        triggerShake();
+                        lastShakeTime = curTime;
+                    }
+                }
+                
+                lastX = x;
+                lastY = y;
+                lastZ = z;
+            }
+        }
+        function triggerShake() {
+            if(window.navigator.vibrate) window.navigator.vibrate([200, 100, 200]);
+            playPaperSound(); 
+            const randomQian = QIAN_LIST[Math.floor(Math.random() * QIAN_LIST.length)];
+            const modal = document.getElementById('qian-modal');
+            const content = document.getElementById('qian-content');
+            const text = document.getElementById('qian-text');
+            text.innerText = randomQian;
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                content.classList.remove('scale-90');
+                content.classList.add('scale-100');
+            }, 50);
+        }
+        document.addEventListener('click', (e) => {
+            const ink = document.createElement('div');
+            ink.className = 'ink-ripple';
+            const size = 50 + Math.random() * 30; 
+            ink.style.width = `${size}px`;
+            ink.style.height = `${size}px`;
+            ink.style.left = `${e.clientX - size/2}px`;
+            ink.style.top = `${e.clientY - size/2}px`;
+            document.body.appendChild(ink);
+            setTimeout(() => {
+                ink.remove();
+            }, 600);
+        });
+        function closeQian() {
+            const modal = document.getElementById('qian-modal');
+            const content = document.getElementById('qian-content');
+            modal.classList.add('opacity-0');
+            content.classList.remove('scale-100');
+            content.classList.add('scale-90');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 500);
+        }
+        (function initGoldDust() {
+            const canvas = document.getElementById('gold-dust');
+            const ctx = canvas.getContext('2d');
+            let width, height;
+            let particles = [];
+
+            function resize() {
+                width = canvas.width = window.innerWidth;
+                height = canvas.height = window.innerHeight;
+            }
+            window.addEventListener('resize', resize);
+            resize();
+
+            class Particle {
+                constructor() {
+                    this.reset();
+                }
+                reset() {
+                    this.x = Math.random() * width;
+                    this.y = Math.random() * height;
+                    this.vx = (Math.random() - 0.5) * 0.2; // 横向极慢漂浮
+                    this.vy = (Math.random() - 0.5) * 0.2; // 纵向极慢漂浮
+                    this.size = Math.random() * 2 + 0.5;   // 粒子大小
+                    this.alpha = Math.random() * 0.5 + 0.1; // 透明度
+                    this.life = Math.random() * 100; // 生命周期
+                }
+                update() {
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.life--;
+
+                    // 边界检查或生命结束
+                    if (this.x < 0 || this.x > width || this.y < 0 || this.y > height || this.life < 0) {
+                        this.reset();
+                    }
+                }
+                draw() {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(212, 175, 55, ${this.alpha})`; // 金色 #D4AF37
+                    ctx.fill();
+                }
+            }
+
+            // 初始化粒子数量 (手机少点，电脑多点)
+            const particleCount = window.innerWidth < 768 ? 30 : 60;
+            for (let i = 0; i < particleCount; i++) {
+                particles.push(new Particle());
+            }
+
+            function animate() {
+                ctx.clearRect(0, 0, width, height);
+                particles.forEach(p => {
+                    p.update();
+                    p.draw();
+                });
+                requestAnimationFrame(animate);
+            }
+            animate();
+        })();
     </script>
 </body>
 </html>
